@@ -67,7 +67,7 @@ def rag_function(query):
     patient5 = dataset['train']['utterances'][int(retrieved_results[0][4])][0]
     doctor5 = dataset['train']['utterances'][int(retrieved_results[0][4])][1]
     
-    few_shot_string = f"{patient1} {doctor1} --- {patient2} {doctor2} --- {patient3} {doctor3} --- {patient4} {doctor4} --- {patient5} {doctor5} --- patient: {query} doctor:"
+    few_shot_string = f"[INST]Answer the patient's last question, based on these examples: {patient1} {doctor1} --- {patient2} {doctor2} --- {patient3} {doctor3} --- {patient4} {doctor4} --- {patient5} {doctor5}[/INST] patient: {query} doctor:"
     
     return few_shot_string
     
