@@ -1,6 +1,7 @@
 from llamaapi import LlamaAPI
 from sentence_transformers import SentenceTransformer
 import chromadb
+from chromadb.config import Settings
 from transformers import AutoTokenizer, AutoConfig, AutoModelForCausalLM
 import torch
 from langchain_core.messages import AIMessage
@@ -9,17 +10,18 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_experimental.llms import ChatLlamaAPI
 from langchain.memory import ChatMessageHistory
 from datasets import load_dataset
+import streamlit as st
 
-# Replace 'Your_API_Token' with your actual API token
+
 llama = LlamaAPI("LL-L2JQThjl0h8dB9BSjHJPwJDEMYRY8vWGCJOMYhhVQqukwqELfsFl7K9HEZC0vJDb")
 
-#Initialize Llama API
+
 model = ChatLlamaAPI(client=llama)
 
-#Load medical dialog dataset
+
 dataset = load_dataset("medical_dialog", 'processed.en', trust_remote_code=True)
 
-#Get patient data from dataset
+
 chunks = dataset['train']['utterances']
 
 patient_data = []
@@ -31,18 +33,22 @@ for i in range(len(chunks)):
 embedding_model = SentenceTransformer("sentence-transformers/all-mpnet-base-v2")
 patient_data_embeddings = embedding_model.encode(patient_data)
 
-#Chroma DB
+# chroma_client = chromadb.HttpClient(host='127.0.0.1', port=8000, settings=Settings(allow_reset=True, anonymized_telemetry=False))
 chroma_client = chromadb.Client()
-collection = chroma_client.create_collection(name="rag_llama2")
+collection_name = "rag_llama7"
 
-collection.add(
-    embeddings = patient_data_embeddings,
-    documents=patient_data,
-    ids= [str(i) for i in range(len(patient_data))]
-)
+
+try:
+    existing_collection = chroma_client.get_or_create_collection(name=collection_name)
+except chromadb.errors.CollectionNotFound:
+    print(f"Collection '{collection_name}' not found. Creating new.")
+
+# Create a new collection
+existing_collection.add(embeddings=patient_data_embeddings, documents=patient_data, ids=[str(i) for i in range(len(patient_data))])
+print("Added embeddings to new collection.")
 
 def retrieve_vector_db(query, n_results=5):
-    results = collection.query(
+    results = existing_collection.query(
     query_embeddings = embedding_model.encode(query).tolist(),
     n_results=n_results
     )
@@ -88,25 +94,59 @@ prompt = ChatPromptTemplate.from_messages(
     ]
 )
 
-chain = prompt | model
+# Streamlit interaction
+# pip install streamlit
+# You can run the Streamlit code by doing this: streamlit run <python file name>
 
-ai="Hello! How can I help you?"
-print("Here is a doctor to interact with.....")
-#inp="[INST]Hello Doctor![/INST]"
+st.title('RAG-Enhanced Medical Diagnosis Chatbot')
+st.write('Welcome to the RAG-enhanced medical diagnosis chatbot. Please enter your symptoms or questions below.')
+
+if 'history' not in st.session_state:
+    st.session_state['history'] = ChatMessageHistory()
+
+with st.form("user_input_form"):
+    user_input = st.text_input("Type your message and press enter:", key="user_input")
+    submit_button = st.form_submit_button("Send")
+
+if submit_button and user_input:
+    st.session_state.history.add_user_message(HumanMessage(content=f"You: {user_input}"))
+    
+    context = " --- ".join([msg.content for msg in st.session_state.history.messages])
+    enriched_prompt = rag_function(context + user_input)
+    response = model.invoke([HumanMessage(content=enriched_prompt)]).content
+
+    final_response = response.split('doctor:')[-1].strip()
+    st.session_state.history.add_user_message(HumanMessage(content=f"Doctor: {final_response}"))
+
+conversation = ""
+for message in st.session_state.history.messages:
+    conversation += message.content + "\n"
+
+st.text_area("Conversation", value=conversation, height=300, disabled=True)
 
 
-history = ChatMessageHistory()
-#history.add_user_message(inp)
-history.add_ai_message(ai)
-#print(ai)
-while True:
-    uinput=input("Patient: \n")
-    inp1="[INST]"+uinput+"[/INST]"
-    if(uinput.lower()=="exit" or uinput.lower()=="Thank you"):
-        break
-    else:
-        few_shot_string = rag_function(inp1)
-        history.add_user_message(few_shot_string)
-        out=chain.invoke({"messages":history.messages}).content
-        history.add_ai_message(out)
-        print("Doctor:"+out)
+
+
+# Terminal Based Interaction
+
+# chain = prompt | model
+
+# ai="Hello! How can I help you?"
+# print("Here is a doctor to interact with.....")
+# inp="[INST]Hello Doctor![/INST]"
+
+# history = ChatMessageHistory()
+# #history.add_user_message(inp)
+# history.add_ai_message(ai)
+# #print(ai)
+# while True:
+#     uinput=input("Patient: \n")
+#     inp1="[INST]"+uinput+"[/INST]"
+#     if(uinput.lower()=="exit" or uinput.lower()=="Thank you"):
+#         break
+#     else:
+#         few_shot_string = rag_function(inp1)
+#         history.add_user_message(few_shot_string)
+#         out=chain.invoke({"messages":history.messages}).content
+#         history.add_ai_message(out)
+#         print("Doctor:"+out)
